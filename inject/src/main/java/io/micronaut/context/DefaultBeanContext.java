@@ -157,7 +157,19 @@ public class DefaultBeanContext implements InitializableBeanContext {
 
     protected static final Logger LOG = LoggerFactory.getLogger(DefaultBeanContext.class);
     protected static final Logger LOG_LIFECYCLE = LoggerFactory.getLogger(DefaultBeanContext.class.getPackage().getName() + ".lifecycle");
-
+    @SuppressWarnings("rawtypes")
+    private static final Qualifier PROXY_TARGET_QUALIFIER = new Qualifier<>() {
+        @Override
+        public <T extends BeanType<Object>> Stream<T> reduce(Class<Object> beanType, Stream<T> candidates) {
+            return candidates.filter(bt -> {
+                if (bt instanceof BeanDefinitionDelegate<?> delegate) {
+                    return !(delegate.getDelegate() instanceof ProxyBeanDefinition);
+                } else {
+                    return !(bt instanceof ProxyBeanDefinition);
+                }
+            });
+        }
+    };
     private static final String SCOPED_PROXY_ANN = "io.micronaut.runtime.context.scope.ScopedProxy";
     private static final String INTRODUCTION_TYPE = "io.micronaut.aop.Introduction";
     private static final String ADAPTER_TYPE = "io.micronaut.aop.Adapter";
@@ -1509,7 +1521,10 @@ public class DefaultBeanContext implements InitializableBeanContext {
     @NonNull
     @Override
     public <T> T getProxyTargetBean(@NonNull Argument<T> beanType, @Nullable Qualifier<T> qualifier) {
-        return getProxyTargetBean(null, beanType, qualifier);
+        BeanDefinition<T> definition = getProxyTargetBeanDefinition(beanType, qualifier);
+        @SuppressWarnings("unchecked")
+        Qualifier<T> proxyQualifier = qualifier != null ? Qualifiers.byQualifiers(qualifier, PROXY_TARGET_QUALIFIER) : PROXY_TARGET_QUALIFIER;
+        return resolveBeanRegistration(null, definition, beanType, proxyQualifier).bean;
     }
 
     /**
@@ -1528,7 +1543,12 @@ public class DefaultBeanContext implements InitializableBeanContext {
                                     @NonNull Argument<T> beanType,
                                     @Nullable Qualifier<T> qualifier) {
         BeanDefinition<T> definition = getProxyTargetBeanDefinition(beanType, qualifier);
-        return resolveBeanRegistration(resolutionContext, definition, beanType, qualifier).bean;
+        @SuppressWarnings("unchecked")
+        Qualifier<T> proxyQualifier = qualifier != null ? Qualifiers.byQualifiers(qualifier, PROXY_TARGET_QUALIFIER) : PROXY_TARGET_QUALIFIER;
+        return resolveBeanRegistration(
+                resolutionContext,
+                definition, beanType, proxyQualifier
+        ).bean;
     }
 
     @NonNull
@@ -1678,11 +1698,12 @@ public class DefaultBeanContext implements InitializableBeanContext {
         Class<B> beanType = definition.getBeanType();
         for (Class<?> indexedType : indexedTypes) {
             if (indexedType == beanType || indexedType.isAssignableFrom(beanType)) {
-                resolveTypeIndex(indexedType).forEach(p -> p.disable(definition));
+                final Collection<BeanDefinitionProducer> indexed = resolveTypeIndex(indexedType);
+                indexed.remove(definition);
                 break;
             }
         }
-        beanDefinitionsClasses.forEach(p -> p.disable(definition));
+        this.beanDefinitionsClasses.remove(definition);
         purgeCacheForBeanType(definition.getBeanType());
     }
 
@@ -2995,7 +3016,7 @@ public class DefaultBeanContext implements InitializableBeanContext {
 
         final boolean isProxy = definition.isProxy();
 
-        if (isProxy && isScopedProxyDefinition) {
+        if (isProxy && isScopedProxyDefinition && (qualifier == null || !qualifier.contains(PROXY_TARGET_QUALIFIER))) {
             // AOP proxy
             Qualifier<T> q = qualifier;
             if (q == null) {
@@ -4222,11 +4243,5 @@ public class DefaultBeanContext implements InitializableBeanContext {
             return reference != null && reference.isCandidateBean(beanType);
         }
 
-        public void disable(BeanDefinitionReference<?> reference) {
-            BeanDefinitionReference ref = this.reference;
-            if (ref != null && ref.equals(reference)) {
-                this.reference = null;
-            }
-        }
     }
 }
