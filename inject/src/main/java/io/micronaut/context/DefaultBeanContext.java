@@ -476,6 +476,8 @@ public class DefaultBeanContext implements InitializableBeanContext {
             proxyTargetBeans.clear();
             attributes.clear();
             beanIndex.clear();
+            beanConfigurationsList = null;
+            beanDefinitionReferences = null;
             beanInitializedEventListeners = null;
             beanCreationEventListeners = null;
             beanPreDestroyEventListeners = null;
@@ -1967,7 +1969,7 @@ public class DefaultBeanContext implements InitializableBeanContext {
     @NonNull
     private Map<Class<?>, List<BeanCreatedEventListener<?>>> loadCreatedListeners() {
         final Collection<BeanDefinition<BeanCreatedEventListener>> beanDefinitions = getBeanDefinitions(BeanCreatedEventListener.class);
-        final HashMap<Class<?>, List<BeanCreatedEventListener<?>>> typeToListener = new HashMap<>(beanDefinitions.size(), 1);
+        final HashMap<Class<?>, List<BeanCreatedEventListener<?>>> typeToListener = CollectionUtils.newHashMap(beanDefinitions.size());
         if (beanDefinitions.isEmpty()) {
             return typeToListener;
         }
